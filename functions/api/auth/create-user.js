@@ -1,7 +1,6 @@
-// POST /api/auth/create-user  (관리자 전용 — 초기 세팅 시 또는 관리자 화면에서 사용)
+// POST /api/auth/create-user  (관리자 전용)
+// 호출 시 반드시 헤더에 Authorization: Bearer <로그인토큰> 을 포함해야 함
 // body: { username, password, name, role }
-// 주의: 운영 적용 전 반드시 "이미 로그인한 관리자만 호출 가능"하도록 세션 검증 로직을 추가해야 함
-//       (지금은 최초 관리자 계정을 만들기 위한 기초 버전)
 
 async function hashPassword(password, salt) {
   const enc = new TextEncoder();
@@ -20,8 +19,35 @@ function randomSalt() {
     .join("");
 }
 
+async function getAdminFromRequest(request, env) {
+  const auth = request.headers.get("Authorization") || "";
+  const token = auth.startsWith("Bearer ") ? auth.slice(7) : null;
+  if (!token) return null;
+
+  const session = await env.DB.prepare(
+    "SELECT s.user_id, s.expires_at, u.role, u.is_active FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token = ?"
+  )
+    .bind(token)
+    .first();
+
+  if (!session) return null;
+  if (new Date(session.expires_at) < new Date()) return null;
+  if (session.is_active !== 1) return null;
+  if (session.role !== "admin") return null;
+
+  return session;
+}
+
 export async function onRequestPost({ request, env }) {
   try {
+    const admin = await getAdminFromRequest(request, env);
+    if (!admin) {
+      return new Response(
+        JSON.stringify({ error: "관리자 권한으로 로그인한 상태에서만 계정을 생성할 수 있습니다." }),
+        { status: 403, headers: { "Content-Type": "application/json" } }
+      );
+    }
+
     const { username, password, name, role } = await request.json();
 
     if (!username || !password || !name || !role) {
@@ -45,6 +71,12 @@ export async function onRequestPost({ request, env }) {
       "INSERT INTO users (username, password_hash, name, role) VALUES (?, ?, ?, ?)"
     )
       .bind(username, passwordHash, name, role)
+      .run();
+
+    await env.DB.prepare(
+      "INSERT INTO audit_logs (user_id, action, detail) VALUES (?, 'create_user', ?)"
+    )
+      .bind(admin.user_id, `신규 계정 생성: ${username} (${role})`)
       .run();
 
     return new Response(JSON.stringify({ success: true }), {
