@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>거래처 관리 - 소방시설 점검 통합관리 시스템</title>
+<style>
+  body { font-family: sans-serif; background:#f4f6f8; margin:0; padding:20px; }
+  h1 { font-size:20px; }
+  .toolbar { display:flex; gap:8px; margin-bottom:16px; flex-wrap:wrap; }
+  input, select { padding:8px; border:1px solid #ccc; border-radius:6px; }
+  button { padding:8px 14px; background:#d32f2f; color:#fff; border:none; border-radius:6px; cursor:pointer; }
+  table { width:100%; border-collapse:collapse; background:#fff; border-radius:8px; overflow:hidden; }
+  th, td { padding:10px; text-align:left; border-bottom:1px solid #eee; font-size:14px; }
+  th { background:#fafafa; }
+  tr:hover { background:#fef5f5; cursor:pointer; }
+  .modal-bg { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.4); align-items:center; justify-content:center; }
+  .modal { background:#fff; padding:24px; border-radius:10px; width:400px; max-height:80vh; overflow-y:auto; }
+  .modal label { display:block; font-size:12px; color:#666; margin-top:8px; }
+  .modal input { width:100%; box-sizing:border-box; }
+  .close-btn { background:#999; }
+  #status { font-size:13px; color:#d32f2f; margin-top:8px; }
+</style>
+</head>
+<body>
+  <h1>거래처 관리</h1>
+  <div class="toolbar">
+    <input id="searchQ" placeholder="거래처명 또는 주소 검색" />
+    <button onclick="loadClients()">검색</button>
+    <button onclick="openCreateModal()">+ 거래처 등록</button>
+  </div>
+  <table>
+    <thead>
+      <tr>
+        <th>거래처명</th><th>주소</th><th>등급</th><th>건축물용도</th>
+        <th>다음점검예정일</th><th>상태</th>
+      </tr>
+    </thead>
+    <tbody id="clientRows"></tbody>
+  </table>
+
+  <div class="modal-bg" id="modalBg">
+    <div class="modal">
+      <h3>거래처 등록</h3>
+      <label>거래처명 *</label><input id="f_name" />
+      <label>주소</label><input id="f_address" />
+      <label>지역(구/군)</label><input id="f_region" />
+      <label>건축물 용도</label><input id="f_building_use" />
+      <label>소방안전관리대상물 등급</label><input id="f_grade" placeholder="예: 1급" />
+      <label>관계인 정보</label><input id="f_relation_person" />
+      <label>소방안전관리자</label><input id="f_safety_manager_name" />
+      <div id="status"></div>
+      <div style="margin-top:16px; display:flex; gap:8px;">
+        <button onclick="submitClient()">저장</button>
+        <button class="close-btn" onclick="closeModal()">취소</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+const token = localStorage.getItem('token');
+if (!token) { alert('로그인이 필요합니다.'); location.href = '/'; }
+
+async function loadClients() {
+  const q = document.getElementById('searchQ').value;
+  const res = await fetch('/api/clients?q=' + encodeURIComponent(q), {
+    headers: { 'Authorization': 'Bearer ' + token }
+  });
+  const data = await res.json();
+  if (!res.ok) { alert(data.error || '불러오기 실패'); return; }
+  const rows = document.getElementById('clientRows');
+  rows.innerHTML = '';
+  (data.clients || []).forEach(c => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${c.name||''}</td><td>${c.address||''}</td><td>${c.grade||''}</td>
+      <td>${c.building_use||''}</td><td>${c.next_inspection_date||''}</td><td>${c.inspection_status||''}</td>`;
+    rows.appendChild(tr);
+  });
+}
+
+function openCreateModal() {
+  document.getElementById('modalBg').style.display = 'flex';
+  document.getElementById('status').textContent = '';
+}
+function closeModal() {
+  document.getElementById('modalBg').style.display = 'none';
+}
+
+async function submitClient() {
+  const body = {
+    name: document.getElementById('f_name').value,
+    address: document.getElementById('f_address').value,
+    region: document.getElementById('f_region').value,
+    building_use: document.getElementById('f_building_use').value,
+    grade: document.getElementById('f_grade').value,
+    relation_person: document.getElementById('f_relation_person').value,
+    safety_manager_name: document.getElementById('f_safety_manager_name').value,
+  };
+  if (!body.name) {
+    document.getElementById('status').textContent = '거래처명은 필수입니다.';
+    return;
+  }
+  const res = await fetch('/api/clients', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
+    body: JSON.stringify(body)
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    document.getElementById('status').textContent = data.error || '등록 실패';
+    return;
+  }
+  closeModal();
+  loadClients();
+}
+
+loadClients();
+</script>
+</body>
+</html>
